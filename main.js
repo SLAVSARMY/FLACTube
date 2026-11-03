@@ -94,6 +94,9 @@ const secured = (fn) => (e, ...a) => {
 // Попапы логина (OAuth) и любые новые окна подчиняются той же политике:
 // доверенные домены — внутри, остальное — в системный браузер.
 app.on('web-contents-created', (_e, wc) => {
+  // маскировка под Chrome в JS-слое: страница входа читает navigator.userAgentData
+  wc.on('dom-ready', () => spoofUaInPage(wc));
+  wc.on('did-finish-load', () => spoofUaInPage(wc));
   wc.setWindowOpenHandler(({ url }) => {
     if (navAllowed(url) || (/^https:\/\//.test(url) && hostAllowed(url))) {
       return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, backgroundColor: '#030303' } };
@@ -190,7 +193,6 @@ function createMainWindow() {
     show: false,
     autoHideMenuBar: true,
     title: 'FLACTube',
-    icon: path.join(__dirname, 'icon.ico'),
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'window-preload.js'),
@@ -616,10 +618,82 @@ function setupIpc() {
   }));
 }
 
+// ── Маскировка под Chrome для Google-логина ─────────────────────────────────
+// Google блокирует вход («This browser or app may not be secure»), если браузер
+// саморазоблачится. User-Agent мы уже чистим, но Chromium ЕЩЁ шлёт client-hints
+// заголовки (Sec-CH-UA) со брендами «Chromium/Electron», а страница входа читает
+// то же самое из navigator.userAgentData. Закрываем все три слоя: строка UA
+// (userAgentFallback ниже), заголовки (maskBrowserHeaders), JS-объект (spoofUaInPage).
+const CHROME_VER = process.versions.chrome; // полный, напр. '130.0.6723.44'
+const CHROME_MAJOR = CHROME_VER.split('.')[0];
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`;
+const CHROME_HINTS = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not_A Brand";v="24"`;
+const CHROME_HINTS_FULL = `"Google Chrome";v="${CHROME_VER}", "Chromium";v="${CHROME_VER}", "Not_A Brand";v="24.0.0.0"`;
+
+// Заголовки: применяется к сессии плеера и к defaultSession (попапы логина)
+function maskBrowserHeaders(ses) {
+  try { ses.setUserAgent(CHROME_UA); } catch {}
+  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, cb) => {
+    try {
+      const h = { ...details.requestHeaders };
+      for (const k of Object.keys(h)) if (/^sec-ch-ua/i.test(k)) delete h[k];
+      h['User-Agent'] = CHROME_UA;
+      h['sec-ch-ua'] = CHROME_HINTS;
+      h['sec-ch-ua-mobile'] = '?0';
+      h['sec-ch-ua-platform'] = '"Windows"';
+      h['sec-ch-ua-full-version-list'] = CHROME_HINTS_FULL;
+      cb({ requestHeaders: h });
+    } catch {
+      cb({});
+    }
+  });
+}
+
+// JS-слой: подменяем navigator.userAgentData в мире страницы. executeJavaScript
+// всегда исполняется в main world — contextIsolation не мешает. Guard от повторов.
+const UA_SPOOF_JS = `(function(){
+  try {
+    if (navigator.__ftSpoof) return;
+    var v = ${JSON.stringify(CHROME_VER)};
+    var m = ${JSON.stringify(CHROME_MAJOR)};
+    var brands = [{brand:'Google Chrome',version:m},{brand:'Chromium',version:m},{brand:'Not_A Brand',version:'24'}];
+    var fullList = [{brand:'Google Chrome',version:v},{brand:'Chromium',version:v},{brand:'Not_A Brand',version:'24.0.0.0'}];
+    var uaData = {
+      brands: brands,
+      mobile: false,
+      toJSON: function(){ return { brands: brands, mobile: false }; },
+      getHighEntropyValues: function(hints){
+        var out = {};
+        hints = hints || [];
+        if (hints.indexOf('architecture') >= 0) out.architecture = 'x86';
+        if (hints.indexOf('bitness') >= 0) out.bitness = '64';
+        if (hints.indexOf('model') >= 0) out.model = '';
+        if (hints.indexOf('platform') >= 0) out.platform = 'Windows';
+        if (hints.indexOf('platformVersion') >= 0) out.platformVersion = '15.0.0';
+        if (hints.indexOf('uaFullVersion') >= 0) out.uaFullVersion = v;
+        if (hints.indexOf('fullVersionList') >= 0) out.fullVersionList = fullList;
+        if (hints.indexOf('formFactors') >= 0) out.formFactors = ['Desktop'];
+        return Promise.resolve(out);
+      }
+    };
+    Object.defineProperty(navigator, 'userAgentData', { get: function(){ return uaData; }, configurable: true });
+    navigator.__ftSpoof = true;
+  } catch (e) {}
+})();`;
+
+function spoofUaInPage(wc) {
+  let url = '';
+  try { url = wc.getURL(); } catch {}
+  if (!/^https:\/\//i.test(url)) return; // топбар (file://) не трогаем
+  wc.executeJavaScript(UA_SPOOF_JS, false).catch(() => {});
+}
+
 // ── Сессия: блокировка рекламных запросов ───────────────────────────────────
 async function setupSession() {
   const ses = session.fromPartition('persist:ytm');
-  try { await ses.setUserAgent(app.userAgentFallback); } catch {}
+  // полная маскировка под Chrome: сессия плеера + defaultSession (попапы логина)
+  maskBrowserHeaders(ses);
+  maskBrowserHeaders(session.defaultSession);
   // разовая чистка кэша старого блокировщика (cliqz)
   try { fs.rmSync(path.join(app.getPath('userData'), 'adblock-cache.bin'), { force: true }); } catch {}
 
@@ -663,7 +737,7 @@ async function setupSession() {
 }
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-app.setAppUserModelId('app.ytmdesktop');
+app.setAppUserModelId('app.flactube');
 
 // NB: с Zapret НЕ отключаем QUIC — замер показал, что HTTP/3 к Google летает
 // (avg 4 мс), а медленные как раз TCP-запросы (h2, avg 1.1 c) из-за
