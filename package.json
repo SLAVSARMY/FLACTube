@@ -1,0 +1,47 @@
+{
+  "name": "ytm-desktop",
+  "productName": "YT Music Desktop",
+  "version": "1.0.0",
+  "description": "YouTube Music без рекламы: блокировщик, автопропуск 'Вы ещё слушаете?', скачивание треков в FLAC или оригинале",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "setup": "node scripts/setup.js",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.ytmdesktop",
+    "productName": "YT Music Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "inject-preload.js",
+      "window-preload.js",
+      "renderer/**/*",
+      "lib/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "icon.ico"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
