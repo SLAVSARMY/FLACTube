@@ -4,6 +4,10 @@
 //   npx electron scripts/reset-google-cookies.js
 const { app, session } = require('electron');
 
+// packaged exe живёт в %APPDATA%/FLACTube (productName); dev-запуск electron
+// может выбрать другую папку — привязываемся к packaged-профилю жёстко
+app.setPath('userData', process.env.APPDATA + '\\FLACTube');
+
 const WIPE = /(google|youtube|gstatic|googleapis|doubleclick)\.(com|ru)$/i;
 
 app.whenReady().then(async () => {
