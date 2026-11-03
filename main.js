@@ -9,6 +9,16 @@ const LibraryServer = require('./lib/library-server');
 const Plugins = require('./lib/plugins');
 const { t, autoDetect } = require('./lib/i18n');
 
+// ── Миграция данных со старого имени (YT Music Desktop → FLACTube) ─────────
+// app.name = productName, поэтому папка %APPDATA% сменилась. Переносим её один
+// раз: вход в Google, сессия lossless-источника, конфиг и плагины переживают
+// переименование без повторного логина.
+try {
+  const ud = app.getPath('userData');
+  const prev = path.join(path.dirname(ud), 'YT Music Desktop');
+  if (fs.existsSync(prev) && !fs.existsSync(ud)) fs.cpSync(prev, ud, { recursive: true });
+} catch {}
+
 // ── Блокировка рекламы (сетевой уровень) ────────────────────────────────────
 // NB: @cliqz/adblocker тут нельзя — YouTube требует Trusted Types, инъекции
 // cliqz их нарушают и сайт остаётся пустым. Поэтому свой список URL + чистка
@@ -179,7 +189,7 @@ function createMainWindow() {
     backgroundColor: '#030303',
     show: false,
     autoHideMenuBar: true,
-    title: 'YT Music Desktop',
+    title: 'FLACTube',
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'window-preload.js'),
@@ -660,7 +670,7 @@ app.setAppUserModelId('app.ytmdesktop');
 
 // Google блокирует вход из «неизвестных браузеров» (строка Electron в UA) —
 // маскируемся под обычный Chrome той же версии.
-app.userAgentFallback = app.userAgentFallback.replace(/\s*Electron\/[\d.]+/, '').replace(/\s*ytm-desktop\/[\d.]+/i, '');
+app.userAgentFallback = app.userAgentFallback.replace(/\s*Electron\/[\d.]+/, '').replace(/\s*(ytm-desktop|flactube)\/[\d.]+/i, '');
 
 // Прокси из конфига — до готовности приложения (нормализуем IP:port:user:pass тоже)
 const startCfg = loadConfig();

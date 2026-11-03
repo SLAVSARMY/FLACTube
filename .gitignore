@@ -7,3 +7,4 @@ agents.md
 scripts/patch*.js
 scripts/decrypt-community.js
 scripts/test-strategies.js
+!icon.png

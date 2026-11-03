@@ -2,7 +2,7 @@
 const path = require('path');
 const { CommunityClient } = require('../lib/community');
 
-const c = new CommunityClient(path.join(process.env.APPDATA, 'YT Music Desktop', 'community_session.json'), () => {});
+const c = new CommunityClient(path.join(process.env.APPDATA, 'FLACTube', 'community_session.json'), () => {});
 c.load();
 
 const ISRCs = ['GBAYE0601498', 'GBAHT1700105', 'USUM71703861']; // Astley, Sheeran, Despacito

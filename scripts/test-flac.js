@@ -9,7 +9,7 @@ const { probeInfo } = require('../lib/lossless');
 const videoId = process.argv[2] || 'dQw4w9WgXcQ'; // Rick Astley — есть и в YT, и в Deezer/Tidal
 const root = path.join(__dirname, '..');
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytm-flac-test-'));
-const sessionPath = path.join(process.env.APPDATA, 'YT Music Desktop', 'community_session.json');
+const sessionPath = path.join(process.env.APPDATA, 'FLACTube', 'community_session.json');
 
 const dm = new DownloadManager(path.join(root, 'bin'), outDir);
 dm.setCommunity(sessionPath, (url) => console.log('[TEST] нужен браузер для верификации:', url));

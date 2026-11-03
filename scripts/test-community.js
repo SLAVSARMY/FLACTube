@@ -2,7 +2,7 @@
 const path = require('path');
 const { CommunityClient, VERIFY_BASE, TIDAL_BASE } = require('../lib/community');
 
-const sessionPath = path.join(process.env.APPDATA, 'YT Music Desktop', 'community_session.json');
+const sessionPath = path.join(process.env.APPDATA, 'FLACTube', 'community_session.json');
 const c = new CommunityClient(sessionPath, () => {});
 
 (async () => {
