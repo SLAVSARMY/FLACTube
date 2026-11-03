@@ -1,7 +1,7 @@
 {
   "name": "ytm-desktop",
   "productName": "YT Music Desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "YouTube Music без рекламы: блокировщик, автопропуск 'Вы ещё слушаете?', скачивание треков в FLAC или оригинале",
   "main": "main.js",
   "author": "SLAVSARMY",

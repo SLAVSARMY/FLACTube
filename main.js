@@ -214,6 +214,20 @@ function createMainWindow() {
 
   view.webContents.loadURL('https://music.youtube.com/');
 
+  // Anti-idle: YouTube ставит трек на паузу («Video paused. Continue watching?»),
+  // когда считает пользователя неактивным. Раз в 30 с шлём trusted mousemove
+  // (1px туда-обратно в левом верхнем углу) — таймер бездействия сбрасывается,
+  // плашка не появляется вовсе. Курсор на экране при этом не двигается:
+  // sendInputEvent инжектит событие только в страницу.
+  let idleFlip = false;
+  setInterval(() => {
+    if (!view || view.webContents.isDestroyed()) return;
+    try {
+      view.webContents.sendInputEvent({ type: 'mouseMove', x: idleFlip ? 1 : 0, y: 0 });
+      idleFlip = !idleFlip;
+    } catch {}
+  }, 30_000);
+
   // Попапы логина: OAuth-провайдеры часто стартуют с about:blank и уже потом
   // navigируются на Google/Facebook — окно разрешаем создать, а его навигацию
   // сторожит глобальный фильтр ALLOWED_HOSTS (см. web-contents-created).
@@ -431,6 +445,7 @@ function setupIpc() {
     jobs: dm.list(),
     outDir: dm.outDir,
     proxy: dm.proxy || '',
+    losslessApi: dm.tidalApi || '',
     bins: { ytdlp: dm.hasBin('yt-dlp'), ffmpeg: dm.hasBin('ffmpeg') },
   })));
   ipcMain.handle('panel:download-current', secured((e, fmt) => downloadCurrent(fmt)));
@@ -467,6 +482,13 @@ function setupIpc() {
     shell.openPath(dm.outDir);
   }));
   ipcMain.handle('panel:cancel', secured((e, id) => dm.cancel(id)));
+  ipcMain.handle('panel:set-lossless', secured(async (e, url) => {
+    url = String(url || '').trim().slice(0, 300);
+    if (url && !/^https?:\/\/[\w.-]+/.test(url)) throw new Error('нужен URL вида https://сервер/');
+    saveConfig({ losslessApi: url });
+    dm.setTidalApi(url);
+    return url;
+  }));
   // Пользовательские JSON-плагины
   ipcMain.handle('plugins:state', secured(() => ({ dir: plugins.dir, list: plugins.list })));
   ipcMain.handle('plugins:reload', secured(() => {
@@ -546,6 +568,21 @@ function setupIpc() {
     }
     await exportScCookies().catch(() => null);
     return dm.scQuery(url);
+  }));
+  ipcMain.handle('library:delete', secured((e, id) => {
+    if (!id || !/^[\w-]{4,32}$/.test(id)) throw new Error('bad id');
+    let removed = 0;
+    try {
+      for (const f of fs.readdirSync(dm.outDir)) {
+        if (f.includes(`[${id}]`)) {
+          try { fs.rmSync(path.join(dm.outDir, f), { force: true }); removed++; } catch {}
+        }
+      }
+    } catch {}
+    const meta = readLibMeta();
+    if (meta[id]) { delete meta[id]; writeLibMeta(meta); }
+    lib.clearCache();
+    return removed;
   }));
   ipcMain.handle('library:check', secured((e, id) => {
     if (!id || !/^[\w-]{4,32}$/.test(id)) return null;
@@ -638,6 +675,13 @@ app.whenReady().then(async () => {
 
   dm = new DownloadManager(binDir(), startCfg.outDir || defaultOutDir());
   dm.setProxy(startProxy);
+  dm.setTidalApi(startCfg.losslessApi || '');
+  // community-серверы SpotiFLAC — дефолтный lossless-источник
+  dm.setCommunity(path.join(app.getPath('userData'), 'community_session.json'), (url) => {
+    shell.openExternal(url);
+    toastInView('🎧 Пройди проверку в браузере (lossless-источник) — окно уже открылось', 10000);
+  });
+  dm.on('notify', (msg) => toastInView(msg, 8000));
   // Папка пользовательских JSON-плагинов
   plugins = new Plugins(path.join(app.getPath('userData'), 'plugins'));
   fs.mkdirSync(plugins.dir, { recursive: true });

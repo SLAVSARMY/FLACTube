@@ -3,3 +3,7 @@ bin/
 dist/
 *.log
 *.png
+agents.md
+scripts/patch*.js
+scripts/decrypt-community.js
+scripts/test-strategies.js

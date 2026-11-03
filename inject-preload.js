@@ -28,8 +28,10 @@ try {
 } catch {}
 
 // «Вы ещё слушаете?» / «Are you still there?» — автопропуск.
-const STILL_RE = /(are you still|still (there|listening)|вы ещё|вы еще|всё ещё|все еще)/i;
-const KEEP_RE = /(keep listening|continue listening|keep playing|слушать дальше|продолжить слушать|да, слушать|остаться)/i;
+// Также «Video paused. Continue watching?» / «Воспроизведение приостановлено. Продолжить просмотр?» —
+// та же анти-фоновая плашка, но с другим текстом и кнопкой «Yes»/«Да».
+const STILL_RE = /(are you still|still (there|listening)|вы ещё|вы еще|всё ещё|все еще|continue watching|продолжить просмотр|video paused|воспроизведение приостановл|просмотр остановл|приостановл\w* просмотр)/i;
+const KEEP_RE = /(keep listening|continue listening|keep playing|слушать дальше|продолжить слушать|да, слушать|остаться|continue watching|продолжить просмотр|^да$|^yes$)/i;
 // Промо-диалоги Premium — автозакрытие.
 const PROMO_RE = /(music premium|youtube premium|попробуйте бесплатно|оформить пробн|free trial|try \d)/i;
 const DISMISS_RE = /(no,? ?thanks|not now|skip|позже|не сейчас|нет, спасибо|закрыть)/i;
@@ -179,9 +181,10 @@ function patchDialogs() {
     const text = ((d.textContent || '') + ' ' + label).slice(0, 600);
     if (STILL_RE.test(text)) {
       for (const b of $('button, tp-yt-paper-button, yt-button-shape button, [role="button"]', d)) {
-        if (KEEP_RE.test(b.textContent || '')) {
+        if (KEEP_RE.test((b.textContent || '').trim())) {
           b.click();
           setTimeout(resumeIfPaused, 150);
+          setTimeout(resumeIfPaused, 800);
           break;
         }
       }
@@ -608,6 +611,16 @@ function buildDrawer() {
   proxyRow.append(proxyInput, proxyBtn);
   const proxyHint = el('div', 'ytm-dim', '');
 
+  // SpotiFLAC-режим: tidal-api-совместимый lossless-источник (по ISRC)
+  const llRow = el('div', 'ytm-row');
+  const llInput = el('input', 'ytm-input');
+  llInput.placeholder = 'lossless: https://tidal-api-сервер/ (по ISRC)';
+  llInput.spellcheck = false;
+  const llBtn = el('button', 'ytm-btn', t('ok'));
+  llRow.append(llInput, llBtn);
+  const llHint = el('div', 'ytm-dim', '');
+  llHint.textContent = 'источник true-lossless (16/24-bit). Пусто = FLAC из лучшего потока';
+
   const binsRow = el('div', 'ytm-row');
   const binsLabel = el('span', 'ytm-dim', '');
   binsLabel.style.cssText = 'flex:1';
@@ -657,7 +670,7 @@ function buildDrawer() {
   };
   langRow.append(langLabel, langSel);
 
-  sInner.append(dirRow, proxyRow, proxyHint, binsRow, plugRow, donateRow, langRow);
+  sInner.append(dirRow, proxyRow, proxyHint, llRow, llHint, binsRow, plugRow, donateRow, langRow);
 
   donateBtn.onclick = async () => {
     const ok = () => toast(t('copied'), null, 'check');
@@ -771,6 +784,10 @@ function buildDrawer() {
   proxyBtn.onclick = async () => {
     const v = await ipcRenderer.invoke('panel:set-proxy', proxyInput.value);
     proxyHint.textContent = v ? t('proxyOn') + v : t('proxyOff');
+  };
+  llBtn.onclick = async () => {
+    const v = await ipcRenderer.invoke('panel:set-lossless', llInput.value).catch((e) => { llHint.textContent = '❌ ' + ((e && e.message) || 'ошибка'); return null; });
+    if (v != null) llHint.textContent = v ? '✅ lossless-источник: ' + v : 'источник сброшен — FLAC из потока';
   };
   binsBtn.onclick = async () => {
     binsBtn.disabled = true;
@@ -921,6 +938,15 @@ function buildDrawer() {
         const sb = el('span', 'ytm-badge' + (trk.source === 'soundcloud' ? ' flac' : ''), trk.source === 'soundcloud' ? 'SC' : 'YT');
         row.append(sb);
       }
+      const del = el('button', 'ytm-job-x', '🗑');
+      del.title = 'Удалить из библиотеки';
+      del.style.fontSize = '14px';
+      del.onclick = async () => {
+        if (libMode && libMode.list[libMode.index] && libMode.list[libMode.index].id === trk.id) libStop();
+        const n = await ipcRenderer.invoke('library:delete', trk.id).catch(() => 0);
+        if (n) { toast('🗑 Удалено из библиотеки'); loadLibrary(); }
+      };
+      row.append(del);
       libList.append(row);
     }
     updateLibPlayButtons();
@@ -939,6 +965,7 @@ function buildDrawer() {
       drawerState.bins = st.bins;
       dirValText.textContent = st.outDir;
       if (st.proxy && !proxyInput.value) proxyInput.value = st.proxy;
+      if (st.losslessApi !== undefined && !llInput.value) llInput.value = st.losslessApi || '';
       renderBins();
       renderJobs(st.jobs);
     }).catch(() => {});
@@ -960,12 +987,17 @@ function buildDrawer() {
     binsBtn.style.display = ok ? 'none' : '';
   }
 
+  function badgeText(j) {
+    if (j.status === 'done' || j.lossless) return j.lossless ? 'FLAC' : ((j.container || '').toUpperCase() || 'AUDIO');
+    return j.format === 'flac' ? 'FLAC' : 'RAW';
+  }
+
   const jobCards = new Map();
 
   function makeCard(j) {
     const card = el('div', 'ytm-job');
     const top = el('div', 'ytm-job-top');
-    const badge = el('span', 'ytm-badge' + (j.format === 'flac' ? ' flac' : ''), j.format === 'flac' ? 'FLAC' : 'RAW');
+    const badge = el('span', 'ytm-badge' + (j.lossless || j.format === 'flac' ? ' flac' : ''), badgeText(j));
     const title = el('span', 'ytm-job-title', j.title);
     title.title = j.title;
   const x = el('button', 'ytm-job-x');
@@ -982,8 +1014,8 @@ function buildDrawer() {
   }
 
   function updateCard(c, j) {
-    const badgeTxt = j.format === 'flac' ? 'FLAC' : 'RAW';
-    const badgeCls = 'ytm-badge' + (j.format === 'flac' ? ' flac' : '');
+    const badgeTxt = badgeText(j);
+    const badgeCls = 'ytm-badge' + ((j.lossless || j.format === 'flac') && j.lossless !== false ? ' flac' : '');
     if (c.badge.textContent !== badgeTxt) { c.badge.textContent = badgeTxt; c.badge.className = badgeCls; }
     if (c.title.textContent !== j.title) { c.title.textContent = j.title; c.title.title = j.title; }
     const pct = j.status === 'done' ? 100 : (j.percent || 0);
@@ -996,7 +1028,7 @@ function buildDrawer() {
     else if (j.status === 'error') metaTxt = '⚠ ' + j.error;
     else if (j.status === 'canceled') metaTxt = t('stCanceled');
     else {
-      const st = { queued: t('stQueued'), downloading: t('stDl'), converting: t('stConv') }[j.status] || j.status;
+      const st = { queued: t('stQueued'), downloading: t('stDl'), enriching: 'метаданные + ISRC…', converting: t('stConv') }[j.status] || j.status;
       metaTxt = j.status === 'downloading' && j.percent ? st + ' ' + Math.round(j.percent) + '%' : st;
     }
     if (c.meta.textContent !== metaTxt) c.meta.textContent = metaTxt;
@@ -1004,7 +1036,7 @@ function buildDrawer() {
   }
 
   function renderJobs(jobs) {
-    const active = jobs.filter((j) => ['queued', 'downloading', 'converting'].includes(j.status)).length;
+    const active = jobs.filter((j) => ['queued', 'downloading', 'enriching', 'converting'].includes(j.status)).length;
     hCount.textContent = active;
     hCount.style.display = active ? 'block' : 'none';
 
