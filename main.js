@@ -630,7 +630,10 @@ function setupIpc() {
 // (userAgentFallback ниже), заголовки (maskBrowserHeaders), JS-объект (spoofUaInPage).
 const CHROME_VER = process.versions.chrome; // полный, напр. '130.0.6723.44'
 const CHROME_MAJOR = CHROME_VER.split('.')[0];
-const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_MAJOR}.0.0.0 Safari/537.36`;
+// ВАЖНО: полная версия движка, не MAJOR.0.0.0 — гугл сравнивает заголовок с
+// navigator.userAgent в JS, и расхождение (130.0.0.0 vs 130.0.6723.44) палится
+// как подделка → «Couldn't sign you in»
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`;
 const CHROME_HINTS = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not_A Brand";v="24"`;
 const CHROME_HINTS_FULL = `"Google Chrome";v="${CHROME_VER}", "Chromium";v="${CHROME_VER}", "Not_A Brand";v="24.0.0.0"`;
 
@@ -704,7 +707,12 @@ async function setupSession() {
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
     // базовый список + blockUrls из пользовательских JSON-плагинов
     const extra = plugins ? plugins.merged.blockUrls : [];
-    cb({ cancel: AD_URL_RE.test(details.url) || extra.some((re) => re.test(details.url)) });
+    const u = details.url;
+    // домены логина гугла не трогаем: там нет рекламы, но есть телеметрия
+    // (/log_event, play.google.com/log), которую гугл считает обязательной —
+    // без неё вход помечается небезопасным
+    const isAuth = /accounts\.google\.com|accounts\.youtube\.com|myaccount\.google\.com/.test(u);
+    cb({ cancel: !isAuth && (AD_URL_RE.test(u) || extra.some((re) => re.test(u))) });
   });
 
   // Разрешаем странице грузить локальные треки (CSP). ВАЖНО: у YouTube нет
@@ -749,7 +757,9 @@ app.setAppUserModelId('app.flactube');
 
 // Google блокирует вход из «неизвестных браузеров» (строка Electron в UA) —
 // маскируемся под обычный Chrome той же версии.
-app.userAgentFallback = app.userAgentFallback.replace(/\s*Electron\/[\d.]+/, '').replace(/\s*(ytm-desktop|flactube)\/[\d.]+/i, '');
+// navigator.userAgent в страницах = userAgentFallback: держим его строго
+// равным заголовку CHROME_UA — гугл сверяет эти два слоя при логине
+app.userAgentFallback = CHROME_UA;
 
 // Прокси из конфига — до готовности приложения (нормализуем IP:port:user:pass тоже)
 const startCfg = loadConfig();
