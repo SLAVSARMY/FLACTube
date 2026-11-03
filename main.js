@@ -191,6 +191,7 @@ function createMainWindow() {
     autoHideMenuBar: true,
     title: 'FLACTube',
     icon: path.join(__dirname, 'icon.ico'),
+    icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'window-preload.js'),
       contextIsolation: true,
