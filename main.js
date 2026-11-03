@@ -256,6 +256,10 @@ function createMainWindow() {
           autoHideMenuBar: true,
           backgroundColor: '#030303',
           title: 'Вход',
+          // попап логина ДОЛЖЕН жить в той же сессии, что и плеер: иначе куки
+          // Google оседают в defaultSession, основной вид их не видит, и «вход»
+          // слетает после перезапуска
+          webPreferences: { partition: 'persist:ytm', contextIsolation: true },
         },
       };
     }
