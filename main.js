@@ -648,7 +648,9 @@ function maskBrowserHeaders(ses) {
       h['sec-ch-ua'] = CHROME_HINTS;
       h['sec-ch-ua-mobile'] = '?0';
       h['sec-ch-ua-platform'] = '"Windows"';
-      h['sec-ch-ua-full-version-list'] = CHROME_HINTS_FULL;
+      // NB: sec-ch-ua-full-version-list реальный Chrome на первой навигации НЕ
+      // шлёт (только по Accept-CH на следующих) — гугл палит неестественный
+      // паттерн, поэтому не добавляем
       cb({ requestHeaders: h });
     } catch {
       cb({});
