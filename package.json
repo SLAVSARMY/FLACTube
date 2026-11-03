@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "YouTube Music без рекламы: блокировщик, автопропуск 'Вы ещё слушаете?', скачивание треков в FLAC или оригинале",
   "main": "main.js",
+  "author": "SLAVSARMY",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
