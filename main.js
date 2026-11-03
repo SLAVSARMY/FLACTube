@@ -622,35 +622,23 @@ function setupIpc() {
   }));
 }
 
-// ── Маскировка под Chrome для Google-логина ─────────────────────────────────
-// Google блокирует вход («This browser or app may not be secure»), если браузер
-// саморазоблачится. User-Agent мы уже чистим, но Chromium ЕЩЁ шлёт client-hints
-// заголовки (Sec-CH-UA) со брендами «Chromium/Electron», а страница входа читает
-// то же самое из navigator.userAgentData. Закрываем все три слоя: строка UA
-// (userAgentFallback ниже), заголовки (maskBrowserHeaders), JS-объект (spoofUaInPage).
-const CHROME_VER = process.versions.chrome; // полный, напр. '130.0.6723.44'
-const CHROME_MAJOR = CHROME_VER.split('.')[0];
-// ВАЖНО: полная версия движка, не MAJOR.0.0.0 — гугл сравнивает заголовок с
-// navigator.userAgent в JS, и расхождение (130.0.0.0 vs 130.0.6723.44) палится
-// как подделка → «Couldn't sign you in»
-const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`;
-const CHROME_HINTS = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not_A Brand";v="24"`;
-const CHROME_HINTS_FULL = `"Google Chrome";v="${CHROME_VER}", "Chromium";v="${CHROME_VER}", "Not_A Brand";v="24.0.0.0"`;
+// ── Маскировка под Firefox для Google-логина ────────────────────────────────
+// Фикс из pear-desktop PR #515 (закрыл их волну «This browser or app may not
+// secure»): маскировка под Chrome требует идеально слать ВСЕ Chrome-признаки
+// (client hints, бренды, версии) — любое расхождение = детект. Под Firefox
+// гугл не ждёт client hints вообще: Electron их не шлёт, и согласованность
+// получается автоматически.
+const FF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0';
 
 // Заголовки: применяется к сессии плеера и к defaultSession (попапы логина)
 function maskBrowserHeaders(ses) {
-  try { ses.setUserAgent(CHROME_UA); } catch {}
+  try { ses.setUserAgent(FF_UA); } catch {}
   ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, cb) => {
     try {
       const h = { ...details.requestHeaders };
+      // Firefox не шлёт client hints — удаляем ВСЕ, не подменяем
       for (const k of Object.keys(h)) if (/^sec-ch-ua/i.test(k)) delete h[k];
-      h['User-Agent'] = CHROME_UA;
-      h['sec-ch-ua'] = CHROME_HINTS;
-      h['sec-ch-ua-mobile'] = '?0';
-      h['sec-ch-ua-platform'] = '"Windows"';
-      // NB: sec-ch-ua-full-version-list реальный Chrome на первой навигации НЕ
-      // шлёт (только по Accept-CH на следующих) — гугл палит неестественный
-      // паттерн, поэтому не добавляем
+      h['User-Agent'] = FF_UA;
       cb({ requestHeaders: h });
     } catch {
       cb({});
@@ -658,34 +646,13 @@ function maskBrowserHeaders(ses) {
   });
 }
 
-// JS-слой: подменяем navigator.userAgentData в мире страницы. executeJavaScript
-// всегда исполняется в main world — contextIsolation не мешает. Guard от повторов.
+// JS-слой: в Firefox НЕТ navigator.userAgentData — у Chromium-движка он есть,
+// поэтому скрываем (undefined), иначе страница видит Chromium-бренды.
 const UA_SPOOF_JS = `(function(){
   try {
     if (navigator.__ftSpoof) return;
-    var v = ${JSON.stringify(CHROME_VER)};
-    var m = ${JSON.stringify(CHROME_MAJOR)};
-    var brands = [{brand:'Google Chrome',version:m},{brand:'Chromium',version:m},{brand:'Not_A Brand',version:'24'}];
-    var fullList = [{brand:'Google Chrome',version:v},{brand:'Chromium',version:v},{brand:'Not_A Brand',version:'24.0.0.0'}];
-    var uaData = {
-      brands: brands,
-      mobile: false,
-      toJSON: function(){ return { brands: brands, mobile: false }; },
-      getHighEntropyValues: function(hints){
-        var out = {};
-        hints = hints || [];
-        if (hints.indexOf('architecture') >= 0) out.architecture = 'x86';
-        if (hints.indexOf('bitness') >= 0) out.bitness = '64';
-        if (hints.indexOf('model') >= 0) out.model = '';
-        if (hints.indexOf('platform') >= 0) out.platform = 'Windows';
-        if (hints.indexOf('platformVersion') >= 0) out.platformVersion = '15.0.0';
-        if (hints.indexOf('uaFullVersion') >= 0) out.uaFullVersion = v;
-        if (hints.indexOf('fullVersionList') >= 0) out.fullVersionList = fullList;
-        if (hints.indexOf('formFactors') >= 0) out.formFactors = ['Desktop'];
-        return Promise.resolve(out);
-      }
-    };
-    Object.defineProperty(navigator, 'userAgentData', { get: function(){ return uaData; }, configurable: true });
+    try { delete navigator.userAgentData; } catch (e) {}
+    try { Object.defineProperty(Object.getPrototypeOf(navigator), 'userAgentData', { get: function(){ return undefined; }, configurable: true }); } catch (e) {}
     navigator.__ftSpoof = true;
   } catch (e) {}
 })();`;
@@ -759,9 +726,9 @@ app.setAppUserModelId('app.flactube');
 
 // Google блокирует вход из «неизвестных браузеров» (строка Electron в UA) —
 // маскируемся под обычный Chrome той же версии.
-// navigator.userAgent в страницах = userAgentFallback: держим его строго
-// равным заголовку CHROME_UA — гугл сверяет эти два слоя при логине
-app.userAgentFallback = CHROME_UA;
+// navigator.userAgent в страницах = userAgentFallback: Firefox и в JS, и в
+// заголовках — одно и то же
+app.userAgentFallback = FF_UA;
 
 // Прокси из конфига — до готовности приложения (нормализуем IP:port:user:pass тоже)
 const startCfg = loadConfig();
