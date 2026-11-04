@@ -1385,9 +1385,15 @@ async function pollFlac() {
   const a = ensureAudio();
 
   if (!takeover) {
+    // юзер поставил на паузу — не врываемся со своим звуком поверх тишины:
+    // иначе «пауза не работает» (музыка продолжает играть сама). Вступаем в
+    // takeover только когда сайт реально играет; на play событие пересинкнет.
+    if (v.paused) return;
     // есть ли скачанный файл для этого трека?
     const info = await ipcRenderer.invoke('library:check', id).catch(() => null);
     if (!info || !info.url) return;
+    // между await и знаменем сайт мог встать на паузу — проверяем ещё раз
+    if (v.paused) return;
     if (a.src !== info.url) { a.src = info.url; }
     a.volume = v.volume;
     try { a.currentTime = Math.max(0, v.currentTime || 0); } catch {}
@@ -1497,9 +1503,15 @@ function boot() {
     setInterval(() => { try { placeBarOverlay(); } catch {} }, 800);
     setInterval(() => { try { updateQueueLibrary(); } catch {} }, 2000);
     // выбор песни на сайте → мгновенная проверка FLAC-наличия (без ожидания тика)
-    document.addEventListener('play', (e) => {
-      if (e.target && e.target.tagName === 'VIDEO') { try { lastFlacPoll = 0; pollFlac(); } catch {} }
-    }, true);
+    // пауза/сик тоже синхроним сразу: опрос с гейтом 800 мс давал секунду
+    // «пауза нажата, а музыка ещё играет» — юзер жмёт повторно и тоггл играет заново
+    const videoSync = (e) => {
+      if (!e.target || e.target.tagName !== 'VIDEO') return;
+      try { lastFlacPoll = 0; pollFlac(); } catch {}
+    };
+    document.addEventListener('play', videoSync, true);
+    document.addEventListener('pause', videoSync, true);
+    document.addEventListener('seeking', videoSync, true);
   } else {
     injectScFab();
   }
