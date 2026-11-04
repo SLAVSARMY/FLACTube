@@ -640,6 +640,60 @@ function buildDrawer() {
   plugFolderBtn.title = t('pluginsOpenT');
   plugRow.append(plugLabel, plugReloadBtn, plugFolderBtn);
 
+  // Источники скачивания: порядок + вкл/выкл, папка пользовательских
+  const sourcesRow = el('div', 'ytm-row');
+  const sourcesLabel = el('span', 'ytm-dim', t('sources'));
+  sourcesLabel.style.cssText = 'flex:1';
+  const sourcesFolderBtn = el('button', 'ytm-btn');
+  sourcesFolderBtn.append(icon('folder', 14), el('span', null, t('open')));
+  sourcesFolderBtn.title = t('sourcesOpenT');
+  sourcesRow.append(sourcesLabel, sourcesFolderBtn);
+  const sourcesList = el('div', 'ytm-srcs');
+  sourcesList.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin:2px 0 4px';
+  const sourcesHint = el('div', 'ytm-dim', t('sourcesHint'));
+
+  sourcesFolderBtn.onclick = () => { ipcRenderer.invoke('sources:open-folder'); };
+
+  async function renderSources() {
+    const list = await ipcRenderer.invoke('sources:list').catch(() => []);
+    sourcesList.replaceChildren();
+    for (const s of list) {
+      const row = el('div', 'ytm-src');
+      row.style.cssText = 'display:flex;align-items:center;gap:5px';
+      const mkArrow = (label, title) => {
+        const b = el('button', 'ytm-btn icon', label);
+        b.style.cssText = 'padding:1px 7px;font-size:12px;line-height:1.4;min-width:0';
+        b.title = title;
+        return b;
+      };
+      const up = mkArrow('↑', t('srcUpT'));
+      const dn = mkArrow('↓', t('srcDnT'));
+      const nm = el('span', null, (s.builtin ? '★ ' : '') + s.name + (s.error ? ' ⚠' : ''));
+      nm.style.cssText = 'flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92';
+      nm.title = s.id + ' v' + s.version + (s.error ? ' — ' + s.error : '');
+      const onoff = el('button', 'ytm-btn icon', s.enabled ? '✓' : '—');
+      onoff.style.cssText = 'padding:1px 8px;font-size:12px;line-height:1.4;min-width:0;color:' + (s.enabled ? '#8BD89C' : '#888');
+      onoff.title = s.enabled ? t('srcOnT') : t('srcOffT');
+      up.onclick = async () => {
+        const ids = list.map((x) => x.id);
+        const i = ids.indexOf(s.id);
+        if (i > 0) { [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; await ipcRenderer.invoke('sources:set-order', ids); renderSources(); }
+      };
+      dn.onclick = async () => {
+        const ids = list.map((x) => x.id);
+        const i = ids.indexOf(s.id);
+        if (i >= 0 && i < ids.length - 1) { [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]]; await ipcRenderer.invoke('sources:set-order', ids); renderSources(); }
+      };
+      onoff.onclick = async () => {
+        await ipcRenderer.invoke('sources:set-enabled', s.id, !s.enabled);
+        renderSources();
+      };
+      row.append(up, dn, nm, onoff);
+      sourcesList.append(row);
+    }
+  }
+  renderSources();
+
   // Поддержать автора — USDT TRC20, клик копирует адрес
   const donateRow = el('div', 'ytm-row');
   const donateLabel = el('span', 'ytm-dim', t('donate'));
@@ -670,7 +724,7 @@ function buildDrawer() {
   };
   langRow.append(langLabel, langSel);
 
-  sInner.append(dirRow, proxyRow, proxyHint, llRow, llHint, binsRow, plugRow, donateRow, langRow);
+  sInner.append(dirRow, proxyRow, proxyHint, llRow, llHint, binsRow, plugRow, sourcesRow, sourcesList, sourcesHint, donateRow, langRow);
 
   donateBtn.onclick = async () => {
     const ok = () => toast(t('copied'), null, 'check');

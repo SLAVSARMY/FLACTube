@@ -1,0 +1,7 @@
+{
+  "id": "soundcloud",
+  "name": "SoundCloud",
+  "version": "1.0.0",
+  "entry": "provider.js",
+  "permissions": []
+}

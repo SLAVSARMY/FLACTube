@@ -1,0 +1,7 @@
+{
+  "id": "ytmusic",
+  "name": "YouTube Music",
+  "version": "1.0.0",
+  "entry": "provider.js",
+  "permissions": []
+}

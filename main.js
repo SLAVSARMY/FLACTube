@@ -5,6 +5,7 @@ const { spawnSync } = require('child_process');
 const DownloadManager = require('./lib/downloader');
 const { ensureBinaries } = require('./lib/binaries');
 const { loadConfig, saveConfig } = require('./lib/config');
+const SourceHost = require('./lib/source-host');
 const LibraryServer = require('./lib/library-server');
 const Plugins = require('./lib/plugins');
 const { t, autoDetect } = require('./lib/i18n');
@@ -31,6 +32,7 @@ let view = null;
 let dm = null;
 let lib = new LibraryServer();
 let plugins = null;
+let sourceHost = null;
 let installing = false;
 
 const binDir = () => (app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(__dirname, 'bin'));
@@ -540,6 +542,23 @@ function setupIpc() {
     };
     return dm.add(clean, fmt).id;
   }));
+  // ── Источники скачивания (панель F10) ──────────────────────────────────────
+  ipcMain.handle('sources:list', secured(() => sourceHost ? sourceHost.list() : []));
+  ipcMain.handle('sources:set-order', secured((e, ids) => {
+    if (!sourceHost || !Array.isArray(ids)) return [];
+    return sourceHost.setOrder(ids.map(String));
+  }));
+  ipcMain.handle('sources:set-enabled', secured((e, id, on) => {
+    if (!sourceHost || !/^[\w-]{2,32}$/.test(String(id || ''))) return [];
+    return sourceHost.setEnabled(String(id), !!on);
+  }));
+  ipcMain.handle('sources:open-folder', secured(() => {
+    const p = path.join(app.getPath('userData'), 'providers');
+    fs.mkdirSync(p, { recursive: true });
+    shell.openPath(p);
+    return p;
+  }));
+
   ipcMain.handle('library:list', secured(() => {
     const out = [];
     let files = [];
@@ -744,6 +763,17 @@ app.whenReady().then(async () => {
   dm = new DownloadManager(binDir(), startCfg.outDir || defaultOutDir());
   dm.setProxy(startProxy);
   dm.setTidalApi(startCfg.losslessApi || '');
+  // Сменные источники скачивания: вшитые (lib/sources) + пользовательские
+  // (<userData>/providers). Порядок и вкл/выкл — в конфиге, UI — в панели F10.
+  sourceHost = new SourceHost(
+    path.join(app.getPath('userData'), 'providers'),
+    (order, disabled) => saveConfig({ sourceOrder: order, sourceDisabled: disabled }),
+    (...a) => console.log('[sources]', ...a),
+  );
+  fs.mkdirSync(path.join(app.getPath('userData'), 'providers'), { recursive: true });
+  await sourceHost.load(startCfg);
+  console.log('[sources] активно ' + sourceHost.list().length + ' — папка пользовательских: ' + path.join(app.getPath('userData'), 'providers'));
+  dm.setSourceHost(sourceHost);
   // community-серверы SpotiFLAC — дефолтный lossless-источник
   dm.setCommunity(path.join(app.getPath('userData'), 'community_session.json'), (url) => {
     shell.openExternal(url);
