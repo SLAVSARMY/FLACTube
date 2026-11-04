@@ -797,6 +797,38 @@ app.whenReady().then(async () => {
   await sourceHost.load(startCfg);
   console.log('[sources] активно ' + sourceHost.list().length + ' — папка пользовательских: ' + path.join(app.getPath('userData'), 'providers'));
   dm.setSourceHost(sourceHost);
+
+  // Набор Mornye по умолчанию: при первом запуске тихо ставим расширения,
+  // которые живут без их крипто-сессий (lossless-четвёрка требует их
+  // signedSession и ставится только вручную из реестра — кнопкой в панели).
+  // Ставятся ПОСЛЕ вшитых: альтернатива, не замена; если реестр недоступен —
+  // флаг не пишется, попытка повторится в следующий запуск.
+  if (!startCfg.mornyeSetInstalled) {
+    setImmediate(async () => {
+      const proxyArgs = startProxy ? ['--proxy', startProxy] : [];
+      const providersDir = path.join(app.getPath('userData'), 'providers');
+      try {
+        const list = await sflx.listRegistry(proxyArgs);
+        const want = ['soundcloud', 'ytmusic-spotiflac', 'jiosaavn'];
+        let ok = 0;
+        for (const id of want) {
+          const ext = list.find((x) => x.id === id);
+          if (!ext) continue;
+          try { await sflx.install(ext, providersDir, proxyArgs); ok++; }
+          catch (e) { console.warn('[sources] автоустановка ' + id + ': ' + e.message); }
+        }
+        if (ok === want.length) {
+          saveConfig({ mornyeSetInstalled: true });
+          await sourceHost.load(loadConfig());
+          console.log('[sources] набор Mornye по умолчанию установлен (' + ok + ' расширений, стоят после вшитых)');
+        } else {
+          console.warn('[sources] набор Mornye не доложился (' + ok + '/' + want.length + ') — повтор в следующий запуск');
+        }
+      } catch (e) {
+        console.warn('[sources] реестр Mornye недоступен — набор не поставлен: ' + e.message);
+      }
+    });
+  }
   // community-серверы SpotiFLAC — дефолтный lossless-источник
   dm.setCommunity(path.join(app.getPath('userData'), 'community_session.json'), (url) => {
     shell.openExternal(url);
