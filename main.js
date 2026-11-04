@@ -6,6 +6,7 @@ const DownloadManager = require('./lib/downloader');
 const { ensureBinaries } = require('./lib/binaries');
 const { loadConfig, saveConfig } = require('./lib/config');
 const SourceHost = require('./lib/source-host');
+const sflx = require('./lib/sflx');
 const LibraryServer = require('./lib/library-server');
 const Plugins = require('./lib/plugins');
 const { t, autoDetect } = require('./lib/i18n');
@@ -557,6 +558,28 @@ function setupIpc() {
     fs.mkdirSync(p, { recursive: true });
     shell.openPath(p);
     return p;
+  }));
+  // Реестр расширений Mornye: список, установка с SHA-256, удаление
+  ipcMain.handle('sources:registry-list', secured(async () => {
+    const args = [];
+    if (startProxy) args.push('--proxy', startProxy);
+    return sflx.listRegistry(args);
+  }));
+  ipcMain.handle('sources:registry-install', secured(async (e, ext) => {
+    if (!sourceHost || !ext || !/^https:\/\//.test(String(ext.url))) throw new Error('плохой вызов установки');
+    const providersDir = path.join(app.getPath('userData'), 'providers');
+    const args = [];
+    if (startProxy) args.push('--proxy', startProxy);
+    const mf = await sflx.install(ext, providersDir, args);
+    const cfg = loadConfig();
+    await sourceHost.load(cfg);
+    return mf;
+  }));
+  ipcMain.handle('sources:remove', secured(async (e, id) => {
+    if (!sourceHost) return [];
+    sflx.remove(id, path.join(app.getPath('userData'), 'providers'));
+    await sourceHost.load(loadConfig());
+    return sourceHost.list();
   }));
 
   ipcMain.handle('library:list', secured(() => {

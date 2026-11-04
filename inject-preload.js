@@ -640,21 +640,62 @@ function buildDrawer() {
   plugFolderBtn.title = t('pluginsOpenT');
   plugRow.append(plugLabel, plugReloadBtn, plugFolderBtn);
 
-  // Источники скачивания: порядок + вкл/выкл, папка пользовательских
+  // Источники скачивания: порядок + вкл/выкл, папка пользовательских, реестр Mornye
   const sourcesRow = el('div', 'ytm-row');
   const sourcesLabel = el('span', 'ytm-dim', t('sources'));
   sourcesLabel.style.cssText = 'flex:1';
+  const sourcesRegBtn = el('button', 'ytm-btn');
+  sourcesRegBtn.append(icon('cloud_download', 14), el('span', null, 'Mornye'));
+  sourcesRegBtn.title = t('sourcesRegT');
   const sourcesFolderBtn = el('button', 'ytm-btn');
   sourcesFolderBtn.append(icon('folder', 14), el('span', null, t('open')));
   sourcesFolderBtn.title = t('sourcesOpenT');
-  sourcesRow.append(sourcesLabel, sourcesFolderBtn);
+  sourcesRow.append(sourcesLabel, sourcesRegBtn, sourcesFolderBtn);
   const sourcesList = el('div', 'ytm-srcs');
   sourcesList.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin:2px 0 4px';
   const sourcesHint = el('div', 'ytm-dim', t('sourcesHint'));
 
   sourcesFolderBtn.onclick = () => { ipcRenderer.invoke('sources:open-folder'); };
 
+  let registryMode = false;
+  sourcesRegBtn.onclick = async () => {
+    if (registryMode) { registryMode = false; sourcesHint.textContent = t('sourcesHint'); renderSources(); return; }
+    registryMode = true;
+    sourcesHint.textContent = t('sourcesRegHint');
+    sourcesList.replaceChildren(el('div', 'ytm-dim', t('srcRegLoading')));
+    let list = [];
+    try { list = await ipcRenderer.invoke('sources:registry-list'); }
+    catch (e) { sourcesList.replaceChildren(el('div', 'ytm-dim', '⚠ ' + e.message)); return; }
+    if (registryMode === false) return;
+    sourcesList.replaceChildren();
+    if (!list.length) { sourcesList.append(el('div', 'ytm-dim', t('srcRegEmpty'))); return; }
+    for (const ext of list) {
+      const row = el('div', 'ytm-src');
+      row.style.cssText = 'display:flex;align-items:center;gap:5px';
+      const nm = el('span', null, (ext.lossless ? '🎧 ' : '') + ext.name + ' ' + ext.version);
+      nm.style.cssText = 'flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92';
+      nm.title = ext.description || ext.id;
+      const inst = el('button', 'ytm-btn icon', '⤓');
+      inst.style.cssText = 'padding:1px 8px;font-size:12px;line-height:1.4;min-width:0';
+      inst.title = t('srcInstT');
+      inst.onclick = async () => {
+        inst.textContent = '…'; inst.disabled = true;
+        try {
+          await ipcRenderer.invoke('sources:registry-install', { id: ext.id, url: ext.url, sha256: ext.sha256, version: ext.version });
+          inst.textContent = '✓';
+          toast(t('srcInstalled').replace('{n}', ext.name), null, 'check');
+        } catch (e) {
+          inst.textContent = '!'; inst.disabled = false;
+          toast(e.message, null, 'error');
+        }
+      };
+      row.append(nm, inst);
+      sourcesList.append(row);
+    }
+  };
+
   async function renderSources() {
+    if (registryMode) return; // реестр открыт — не затираем его список
     const list = await ipcRenderer.invoke('sources:list').catch(() => []);
     sourcesList.replaceChildren();
     for (const s of list) {
@@ -689,6 +730,17 @@ function buildDrawer() {
         renderSources();
       };
       row.append(up, dn, nm, onoff);
+      // mornye-расширения удаляются прямо из списка (вшитые — не трогаем)
+      if (s.runtime === 'mornye') {
+        const del = el('button', 'ytm-btn icon', '✕');
+        del.style.cssText = 'padding:1px 7px;font-size:12px;line-height:1.4;min-width:0;color:#d88';
+        del.title = t('srcDelT');
+        del.onclick = async () => {
+          await ipcRenderer.invoke('sources:remove', s.id);
+          renderSources();
+        };
+        row.append(del);
+      }
       sourcesList.append(row);
     }
   }

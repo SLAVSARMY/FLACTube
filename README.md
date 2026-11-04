@@ -35,7 +35,7 @@ npm start
 ```bash
 npm run dist
 ```
-Результат: `dist/FLACTube 1.4.0.exe` (portable, bin/ кладётся внутрь автоматически).
+Результат: `dist/FLACTube 1.5.0.exe` (portable, bin/ кладётся внутрь автоматически).
 
 Это один .exe (~190 МБ): внутрь упакованы Electron + ffmpeg/yt-dlp. Его можно просто скопировать на **любой компьютер с Windows 10/11 x64** — там не нужен ни Node.js, ни npm. Первый запуск может занять до минуты (само-распаковка во временную папку). SmartScreen может предупредить о неизвестном издателе — exe не подписан сертификатом; жмите «Подробнее → Выполнить в любом случае».
 
@@ -171,6 +171,12 @@ globalThis.resolve = async (ctx) => {
 USDT (TRC20): `TGZN8xLTZX2rCtDptwjEjQM737E29UVWuU` — кнопка копирования адреса в панели загрузок (F10 → ⚙).
 
 ## История изменений
+
+### v1.5.0
+- **Расширения Mornye (.sflx) как альтернативные источники:** кнопка «Mornye» в панели (F10 → Настройки → Источники) читает публичный реестр [Mornye-Extension](https://github.com/mornyeapp/Mornye-Extension), качает `.sflx` с проверкой SHA-256 и ставит в папку источников; удаление — крестиком в списке. Расширение исполняется в отдельном child-процессе (`ELECTRON_RUN_AS_NODE` + vm-контекст) с синхронными шимами их рантайма: `http.get` — системный curl, `file.download/downloadSegments` — curl + склейка сегментов (HLS), `storage` — JSON-файл, `utils` — sleep через Atomics, хэши, UA. Сеть ограничена правами из manifest расширения.
+- **Контракт расширения:** `registerExtension({ searchTracks, download, ... })` — резолв через их `searchTracks(title artist)`, скачивание через их `download(trackId, quality, outPath)` (расширение само качает файл, наш конвейер дальше вешает теги/обложку/lossless-обогащение как обычно).
+- **Честно про совместимость:** работают расширения без их крипто-сессий — SoundCloud, YouTube Music (SpotiFLAC-вариант), JioSaavn, метаданные Spotify/Apple/корейских чартов. Их lossless-четвёрка (Deezer/Qobuz/Tidal/Amazon) требует `signedSession` — их серверных подписей — и откажется; эту полку у нас закрывает вшитый lossless-конвейер (community SpotiFLAC + tidal-api), тем же набором источников.
+- Инфраструктура: `lib/zip.js` — мини-распаковщик zip без зависимостей (zip-slip, потолки размеров), `lib/sflx.js` — реестр+установка, `lib/sflx-runner.js` — раннер, `lib/sflx-bridge.js` — RPC-мост с таймаутом и рестартом.
 
 ### v1.4.0
 - **Сменные источники скачивания** (по образцу extension-модели Mornye): источник = подпапка с `manifest.json` + JS-резолвер в песочнице `node:vm` (сеть только по белому списку доменов из manifest.permissions, https-only, без require/process/fs). Вшитые — те же контракты (`lib/sources/`: ytmusic, soundcloud). Порядок приоритета и вкл/выкл — в панели (F10 → Настройки). Источник ответил «не моё» или упал — цепочка идёт к следующему.

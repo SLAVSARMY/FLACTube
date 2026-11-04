@@ -1,7 +1,7 @@
 {
   "name": "flactube",
   "productName": "FLACTube",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "FLACTube (экс YT Music Desktop): YouTube Music без рекламы, скачивание треков в FLAC, автопропуск простоя",
   "main": "main.js",
   "author": "SLAVSARMY",
